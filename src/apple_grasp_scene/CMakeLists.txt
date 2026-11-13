@@ -41,6 +41,7 @@ install(PROGRAMS
   scripts/stable_apple_locator.sh
   scripts/detect_apple_service.py
   scripts/detect_apple_client.py
+  scripts/pick_apple_action_server.py
   scripts/locate_apple.sh
   scripts/vision_pick_apple.sh
   scripts/test_both_pick_paths.sh
