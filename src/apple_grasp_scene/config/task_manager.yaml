@@ -22,7 +22,7 @@ pick_apple_action_server:
     viewpoint_grid_step_x: 0.10
     viewpoint_grid_step_y: 0.08
     viewpoint_grid_z: [0.380, 0.420]
-    verified_viewpoint_count: 7
+    verified_viewpoint_count: 8
 
     workspace_min_x: 0.55
     workspace_max_x: 0.80
