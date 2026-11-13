@@ -58,7 +58,7 @@ class PickAppleActionServer(Node):
         self.declare_parameter('viewpoint_grid_step_x', 0.10)
         self.declare_parameter('viewpoint_grid_step_y', 0.08)
         self.declare_parameter('viewpoint_grid_z', [0.380, 0.420])
-        self.declare_parameter('verified_viewpoint_count', 0)
+        self.declare_parameter('verified_viewpoint_names', ['center'])
         self.declare_parameter('workspace_min_x', 0.55)
         self.declare_parameter('workspace_max_x', 0.80)
         self.declare_parameter('workspace_min_y', -0.45)
@@ -254,6 +254,7 @@ class PickAppleActionServer(Node):
         result = PickApple.Result()
 
         real_execution = bool(goal_handle.request.execute)
+        search_viewpoints = self._viewpoints
         if real_execution:
             if os.environ.get('APPLE_ACTION_EXECUTE') != 'YES':
                 result.success = False
@@ -282,30 +283,40 @@ class PickAppleActionServer(Node):
                 goal_handle.abort()
                 return result
 
-            verified_count = int(
-                self.get_parameter('verified_viewpoint_count').value)
-            requested_attempts = int(goal_handle.request.max_search_attempts)
-            requested_count = (
-                len(self._viewpoints) if requested_attempts == 0 else
-                min(requested_attempts, len(self._viewpoints)))
-            if requested_count > verified_count:
+            verified_names = set(
+                self.get_parameter('verified_viewpoint_names').value)
+            configured_names = {point[0] for point in self._viewpoints}
+            unknown_names = verified_names - configured_names
+            if unknown_names:
                 result.success = False
                 result.final_state = 'SAFETY_REJECTED'
                 result.message = (
-                    f'Real motion requested {requested_count} viewpoints, but '
-                    f'only the first {verified_count} are verified. Run a '
-                    'planning preview before expanding real execution.')
+                    'Verified viewpoint list contains unknown names: '
+                    f'{", ".join(sorted(unknown_names))}.')
                 result.total_time = float(time.monotonic() - started_at)
                 goal_handle.abort()
                 return result
+            search_viewpoints = tuple(
+                point for point in self._viewpoints
+                if point[0] in verified_names)
+            if not search_viewpoints:
+                result.success = False
+                result.final_state = 'SAFETY_REJECTED'
+                result.message = 'No verified viewpoints are configured.'
+                result.total_time = float(time.monotonic() - started_at)
+                goal_handle.abort()
+                return result
+            self.get_logger().info(
+                f'Real search restricted to {len(search_viewpoints)} '
+                'explicitly verified viewpoints.')
 
         self._publish_feedback(goal_handle, 'CHECK_SYSTEM', 0.05)
         time.sleep(0.25)
 
         requested_attempts = int(goal_handle.request.max_search_attempts)
         attempt_limit = (
-            len(self._viewpoints) if requested_attempts == 0 else
-            min(requested_attempts, len(self._viewpoints)))
+            len(search_viewpoints) if requested_attempts == 0 else
+            min(requested_attempts, len(search_viewpoints)))
         if attempt_limit <= 0:
             goal_handle.abort()
             result.success = False
@@ -317,7 +328,7 @@ class PickAppleActionServer(Node):
         planning_errors = []
         planned_count = 0
         for attempt, viewpoint in enumerate(
-                self._viewpoints[:attempt_limit], start=1):
+                search_viewpoints[:attempt_limit], start=1):
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
                 result.success = False
