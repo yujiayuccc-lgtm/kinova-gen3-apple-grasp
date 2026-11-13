@@ -3,6 +3,7 @@
 
 import sys
 import time
+import subprocess
 
 sys.path.insert(0, '/usr/lib/python3/dist-packages')
 
@@ -139,6 +140,34 @@ class PickAppleActionServer(Node):
         finally:
             client_node.destroy_node()
 
+    def _preview_viewpoint(self, viewpoint):
+        """Plan to one configured viewpoint without executing a trajectory."""
+        name, x, y, z = viewpoint
+        command = [
+            'ros2', 'run', 'apple_grasp_scene', 'scene_plan_only',
+            '--ros-args',
+            '-p', f'target_x:={x}',
+            '-p', f'target_y:={y}',
+            '-p', f'target_z:={z}',
+            '-p', 'execute_authorized:=false',
+        ]
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+        if completed.returncode != 0:
+            lines = [line for line in completed.stdout.splitlines() if line]
+            detail = lines[-1] if lines else 'no planner output'
+            raise RuntimeError(
+                f'viewpoint {name} planning failed: {detail}')
+        self.get_logger().info(
+            f'Planning preview succeeded for {name}: '
+            f'({x:.3f}, {y:.3f}, {z:.3f}) m.')
+
     def _execute_callback(self, goal_handle):
         started_at = time.monotonic()
         result = PickApple.Result()
@@ -157,11 +186,57 @@ class PickAppleActionServer(Node):
             self.get_logger().warning(result.message)
             return result
 
-        self._publish_feedback(goal_handle, 'CHECK_SYSTEM', 0.10)
+        self._publish_feedback(goal_handle, 'CHECK_SYSTEM', 0.05)
         time.sleep(0.25)
-        self._publish_feedback(goal_handle, 'SEARCH', 0.20, search_attempt=1)
-        time.sleep(0.25)
-        self._publish_feedback(goal_handle, 'DETECT', 0.30, search_attempt=1)
+
+        requested_attempts = int(goal_handle.request.max_search_attempts)
+        attempt_limit = (
+            len(self._viewpoints) if requested_attempts == 0 else
+            min(requested_attempts, len(self._viewpoints)))
+        if attempt_limit <= 0:
+            goal_handle.abort()
+            result.success = False
+            result.final_state = 'INVALID_GOAL'
+            result.message = 'max_search_attempts must be zero or greater.'
+            result.total_time = float(time.monotonic() - started_at)
+            return result
+
+        planning_errors = []
+        planned_count = 0
+        for attempt, viewpoint in enumerate(
+                self._viewpoints[:attempt_limit], start=1):
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                result.success = False
+                result.final_state = 'CANCELED'
+                result.message = 'Canceled during viewpoint planning preview.'
+                result.total_time = float(time.monotonic() - started_at)
+                return result
+
+            name = viewpoint[0]
+            progress = 0.10 + 0.40 * (attempt / attempt_limit)
+            self._publish_feedback(
+                goal_handle, f'PLAN_VIEWPOINT_{name.upper()}', progress,
+                search_attempt=attempt)
+            try:
+                self._preview_viewpoint(viewpoint)
+                planned_count += 1
+            except (RuntimeError, subprocess.TimeoutExpired) as exc:
+                message = str(exc)
+                planning_errors.append(message)
+                self.get_logger().warning(message)
+
+        if planned_count == 0:
+            goal_handle.abort()
+            result.success = False
+            result.final_state = 'VIEWPOINT_PLANNING_FAILED'
+            result.message = '; '.join(planning_errors)
+            result.total_time = float(time.monotonic() - started_at)
+            return result
+
+        self._publish_feedback(
+            goal_handle, 'DETECT_CURRENT_VIEW', 0.60,
+            search_attempt=planned_count)
 
         try:
             detection_response = self._request_detection()
@@ -199,7 +274,8 @@ class PickAppleActionServer(Node):
             return result
 
         self._publish_feedback(
-            goal_handle, 'VALIDATE', 0.45, search_attempt=1)
+            goal_handle, 'VALIDATE', 0.72,
+            search_attempt=planned_count)
         self.get_logger().info(
             f'Apple detected at ({detection.center.x:.3f}, '
             f'{detection.center.y:.3f}, {detection.center.z:.3f}) m.')
@@ -214,10 +290,10 @@ class PickAppleActionServer(Node):
                 result.total_time = float(time.monotonic() - started_at)
                 return result
 
-            progress = 0.45 + 0.55 * (index / state_count)
+            progress = 0.72 + 0.28 * (index / state_count)
             self._publish_feedback(
                 goal_handle, state, progress,
-                search_attempt=1, grasp_attempt=0)
+                search_attempt=planned_count, grasp_attempt=0)
             time.sleep(0.25)
 
         goal_handle.succeed()
@@ -225,6 +301,7 @@ class PickAppleActionServer(Node):
         result.final_state = 'DRY_RUN_COMPLETE'
         result.message = (
             'Live detection and action preview completed without robot motion. '
+            f'Planned {planned_count}/{attempt_limit} viewpoints. '
             f'Apple=({detection.center.x:.3f}, '
             f'{detection.center.y:.3f}, {detection.center.z:.3f}) m.')
         result.total_time = float(time.monotonic() - started_at)
