@@ -14,7 +14,7 @@ from rclpy.node import Node
 
 from apple_grasp_interfaces.action import PickApple
 from apple_grasp_interfaces.srv import DetectApple
-from std_msgs.msg import Bool
+from example_interfaces.msg import Bool
 
 
 class PickAppleActionServer(Node):
