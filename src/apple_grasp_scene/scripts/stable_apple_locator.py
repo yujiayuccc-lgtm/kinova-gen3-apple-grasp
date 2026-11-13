@@ -15,7 +15,7 @@ IMAGE_HEIGHT = 720
 EDGE_MARGIN_PX = 5
 
 
-def main():
+def detect_stable():
     samples = []
     for index in range(FRAME_COUNT):
         apple_locator.capture_rgbd()
@@ -56,7 +56,11 @@ def main():
         'radius_samples_m': [float(v) for v in xyzr[:, 3]],
         'annotated_image': apple_locator.ANNOTATED_FILE,
     }
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return result
+
+
+def main():
+    print(json.dumps(detect_stable(), indent=2, ensure_ascii=False))
 
 
 if __name__ == '__main__':
