@@ -7,9 +7,10 @@ pick_apple_action_server:
       - near
       - near_extended
       - far
-    viewpoint_x: [0.680, 0.620, 0.640, 0.600, 0.520, 0.700]
-    viewpoint_y: [-0.260, -0.380, -0.160, -0.260, -0.260, -0.260]
-    viewpoint_z: [0.400, 0.400, 0.380, 0.380, 0.400, 0.320]
+      - edge_recovery
+    viewpoint_x: [0.680, 0.620, 0.640, 0.600, 0.520, 0.700, 0.520]
+    viewpoint_y: [-0.260, -0.380, -0.160, -0.260, -0.260, -0.260, -0.160]
+    viewpoint_z: [0.400, 0.400, 0.380, 0.380, 0.400, 0.320, 0.360]
 
     # Add a serpentine, multi-height observation grid after the six viewpoints
     # already verified on the physical robot. New grid points remain preview-only
@@ -29,13 +30,16 @@ pick_apple_action_server:
       - near
       - near_extended
       - far
+      - edge_recovery
       - grid_01
       - grid_02
       - grid_03
       - grid_05
       - grid_21
 
-    workspace_min_x: 0.55
+    # Visual-search bounds. Grasp execution remains disabled and requires its
+    # own separately commissioned workspace limits.
+    workspace_min_x: 0.50
     workspace_max_x: 0.80
     workspace_min_y: -0.45
     workspace_max_y: -0.10
