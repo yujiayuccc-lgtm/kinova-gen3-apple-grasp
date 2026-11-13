@@ -1,0 +1,6 @@
+# Request one stable RGB-D apple observation.
+---
+bool success
+apple_grasp_interfaces/AppleDetection detection
+string message
+

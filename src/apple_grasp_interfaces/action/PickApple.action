@@ -1,0 +1,17 @@
+# Goal
+bool execute
+uint32 max_search_attempts
+uint32 max_grasp_attempts
+---
+# Result
+bool success
+string final_state
+string message
+float32 total_time
+---
+# Feedback
+string current_state
+uint32 search_attempt
+uint32 grasp_attempt
+float32 progress
+
