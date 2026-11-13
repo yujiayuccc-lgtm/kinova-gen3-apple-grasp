@@ -11,6 +11,38 @@ if [[ "${1:-}" != "--execute" || "${APPLE_SEARCH_PICK_EXECUTE:-}" != "YES" ]]; t
   exit 2
 fi
 
+detector_pid=""
+cleanup_detector() {
+  if [[ -n "$detector_pid" ]]; then
+    kill "$detector_pid" 2>/dev/null || true
+    wait "$detector_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup_detector EXIT INT TERM
+
+# Keep the command self-contained: reuse an existing detector service when
+# available, otherwise start one for this task and stop it on exit.
+if ! timeout 3 ros2 service type /detect_apple 2>/dev/null |
+    grep -q 'apple_grasp_interfaces/srv/DetectApple'; then
+  ros2 run apple_grasp_scene detect_apple_service.py \
+    >/tmp/apple_detect_service.log 2>&1 &
+  detector_pid=$!
+  detector_ready=false
+  for _ in {1..20}; do
+    if timeout 2 ros2 service type /detect_apple 2>/dev/null |
+        grep -q 'apple_grasp_interfaces/srv/DetectApple'; then
+      detector_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  if [[ "$detector_ready" != true ]]; then
+    cat /tmp/apple_detect_service.log >&2 || true
+    echo "Failed to start /detect_apple service." >&2
+    exit 6
+  fi
+fi
+
 move_xyz() {
   ros2 run apple_grasp_scene scene_plan_only --ros-args \
     -p target_x:="$1" -p target_y:="$2" -p target_z:="$3" \
@@ -45,7 +77,7 @@ for spec in "${points[@]}"; do
   fi
   echo "SEARCH_VISIT point=$name target=($x,$y,$z)"
   move_xyz "$x" "$y" "$z"
-  if detection="$(ros2 run apple_grasp_scene stable_apple_locator.sh 2>&1)"; then
+  if detection="$(ros2 run apple_grasp_scene detect_apple_client.py 2>&1)"; then
     echo "$detection"
     echo "SEARCH_FOUND point=$name"
     found=true
