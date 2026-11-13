@@ -50,6 +50,15 @@ class PickAppleActionServer(Node):
         self.declare_parameter('viewpoint_x', [0.680])
         self.declare_parameter('viewpoint_y', [-0.260])
         self.declare_parameter('viewpoint_z', [0.400])
+        self.declare_parameter('viewpoint_grid_enabled', False)
+        self.declare_parameter('viewpoint_grid_min_x', 0.55)
+        self.declare_parameter('viewpoint_grid_max_x', 0.75)
+        self.declare_parameter('viewpoint_grid_min_y', -0.42)
+        self.declare_parameter('viewpoint_grid_max_y', -0.10)
+        self.declare_parameter('viewpoint_grid_step_x', 0.10)
+        self.declare_parameter('viewpoint_grid_step_y', 0.08)
+        self.declare_parameter('viewpoint_grid_z', [0.380, 0.420])
+        self.declare_parameter('verified_viewpoint_count', 0)
         self.declare_parameter('workspace_min_x', 0.55)
         self.declare_parameter('workspace_max_x', 0.80)
         self.declare_parameter('workspace_min_y', -0.45)
@@ -75,7 +84,53 @@ class PickAppleActionServer(Node):
                 'viewpoint_names/x/y/z must be non-empty arrays of equal length')
         if len(set(names)) != len(names):
             raise RuntimeError('viewpoint_names must be unique')
-        return tuple(zip(names, xs, ys, zs))
+        viewpoints = list(zip(names, xs, ys, zs))
+        if not self.get_parameter('viewpoint_grid_enabled').value:
+            return tuple(viewpoints)
+
+        min_x = float(self.get_parameter('viewpoint_grid_min_x').value)
+        max_x = float(self.get_parameter('viewpoint_grid_max_x').value)
+        min_y = float(self.get_parameter('viewpoint_grid_min_y').value)
+        max_y = float(self.get_parameter('viewpoint_grid_max_y').value)
+        step_x = float(self.get_parameter('viewpoint_grid_step_x').value)
+        step_y = float(self.get_parameter('viewpoint_grid_step_y').value)
+        grid_z = list(self.get_parameter('viewpoint_grid_z').value)
+        if min_x > max_x or min_y > max_y or step_x <= 0.0 or step_y <= 0.0:
+            raise RuntimeError('invalid viewpoint grid bounds or step size')
+        if not grid_z:
+            raise RuntimeError('viewpoint_grid_z must not be empty')
+
+        def axis_values(lower, upper, step):
+            values = []
+            value = lower
+            while value <= upper + 1e-9:
+                values.append(round(value, 6))
+                value += step
+            if abs(values[-1] - upper) > 1e-6:
+                values.append(round(upper, 6))
+            return values
+
+        grid_x = axis_values(min_x, max_x, step_x)
+        grid_y = axis_values(min_y, max_y, step_y)
+        existing = {
+            (round(float(x), 4), round(float(y), 4), round(float(z), 4))
+            for _, x, y, z in viewpoints
+        }
+        # Serpentine ordering keeps consecutive Cartesian moves short.  The
+        # original, physically verified viewpoints remain first in the list.
+        grid_index = 0
+        for level_index, z in enumerate(grid_z):
+            rows = grid_x if level_index % 2 == 0 else list(reversed(grid_x))
+            for row_index, x in enumerate(rows):
+                columns = grid_y if row_index % 2 == 0 else list(reversed(grid_y))
+                for y in columns:
+                    key = (round(float(x), 4), round(float(y), 4), round(float(z), 4))
+                    if key in existing:
+                        continue
+                    grid_index += 1
+                    viewpoints.append((f'grid_{grid_index:02d}', x, y, float(z)))
+                    existing.add(key)
+        return tuple(viewpoints)
 
     def _validate_detection(self, detection):
         checks = (
@@ -223,6 +278,23 @@ class PickAppleActionServer(Node):
                 result.success = False
                 result.final_state = 'HARDWARE_FAULT'
                 result.message = 'Robot reports an active internal fault.'
+                result.total_time = float(time.monotonic() - started_at)
+                goal_handle.abort()
+                return result
+
+            verified_count = int(
+                self.get_parameter('verified_viewpoint_count').value)
+            requested_attempts = int(goal_handle.request.max_search_attempts)
+            requested_count = (
+                len(self._viewpoints) if requested_attempts == 0 else
+                min(requested_attempts, len(self._viewpoints)))
+            if requested_count > verified_count:
+                result.success = False
+                result.final_state = 'SAFETY_REJECTED'
+                result.message = (
+                    f'Real motion requested {requested_count} viewpoints, but '
+                    f'only the first {verified_count} are verified. Run a '
+                    'planning preview before expanding real execution.')
                 result.total_time = float(time.monotonic() - started_at)
                 goal_handle.abort()
                 return result

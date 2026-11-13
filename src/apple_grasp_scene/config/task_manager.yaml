@@ -11,6 +11,19 @@ pick_apple_action_server:
     viewpoint_y: [-0.260, -0.380, -0.160, -0.260, -0.260, -0.260]
     viewpoint_z: [0.400, 0.400, 0.380, 0.380, 0.400, 0.320]
 
+    # Add a serpentine, multi-height observation grid after the six viewpoints
+    # already verified on the physical robot. New grid points remain preview-only
+    # until they have passed planning review and low-speed commissioning.
+    viewpoint_grid_enabled: true
+    viewpoint_grid_min_x: 0.55
+    viewpoint_grid_max_x: 0.75
+    viewpoint_grid_min_y: -0.42
+    viewpoint_grid_max_y: -0.10
+    viewpoint_grid_step_x: 0.10
+    viewpoint_grid_step_y: 0.08
+    viewpoint_grid_z: [0.380, 0.420]
+    verified_viewpoint_count: 6
+
     workspace_min_x: 0.55
     workspace_max_x: 0.80
     workspace_min_y: -0.45
