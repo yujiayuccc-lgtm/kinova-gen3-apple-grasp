@@ -27,6 +27,8 @@ class PickAppleActionServer(Node):
 
     def __init__(self):
         super().__init__('pick_apple_action_server')
+        self._declare_parameters()
+        self._viewpoints = self._load_viewpoints()
         self._server = ActionServer(
             self,
             PickApple,
@@ -36,7 +38,64 @@ class PickAppleActionServer(Node):
             cancel_callback=self._cancel_callback,
         )
         self.get_logger().info(
-            'PickApple action server is ready (live perception, no motion).')
+            'PickApple action server is ready (live perception, no motion). '
+            f'Loaded {len(self._viewpoints)} viewpoints: '
+            f'{", ".join(point[0] for point in self._viewpoints)}.')
+
+    def _declare_parameters(self):
+        self.declare_parameter('viewpoint_names', ['center'])
+        self.declare_parameter('viewpoint_x', [0.680])
+        self.declare_parameter('viewpoint_y', [-0.260])
+        self.declare_parameter('viewpoint_z', [0.400])
+        self.declare_parameter('workspace_min_x', 0.55)
+        self.declare_parameter('workspace_max_x', 0.80)
+        self.declare_parameter('workspace_min_y', -0.45)
+        self.declare_parameter('workspace_max_y', -0.10)
+        self.declare_parameter('apple_min_z', 0.025)
+        self.declare_parameter('apple_max_z', 0.060)
+        self.declare_parameter('apple_min_radius', 0.025)
+        self.declare_parameter('apple_max_radius', 0.055)
+        self.declare_parameter('min_fit_points', 1000)
+        self.declare_parameter('max_fit_residual', 0.003)
+        self.declare_parameter('dogleg_threshold', 0.075)
+        self.declare_parameter('pregrasp_height', 0.200)
+        self.declare_parameter('grasp_height', 0.150)
+        self.declare_parameter('lift_height', 0.200)
+
+    def _load_viewpoints(self):
+        names = list(self.get_parameter('viewpoint_names').value)
+        xs = list(self.get_parameter('viewpoint_x').value)
+        ys = list(self.get_parameter('viewpoint_y').value)
+        zs = list(self.get_parameter('viewpoint_z').value)
+        if not names or not (len(names) == len(xs) == len(ys) == len(zs)):
+            raise RuntimeError(
+                'viewpoint_names/x/y/z must be non-empty arrays of equal length')
+        if len(set(names)) != len(names):
+            raise RuntimeError('viewpoint_names must be unique')
+        return tuple(zip(names, xs, ys, zs))
+
+    def _validate_detection(self, detection):
+        checks = (
+            (self.get_parameter('workspace_min_x').value <= detection.center.x <=
+             self.get_parameter('workspace_max_x').value,
+             'apple x outside configured workspace'),
+            (self.get_parameter('workspace_min_y').value <= detection.center.y <=
+             self.get_parameter('workspace_max_y').value,
+             'apple y outside configured workspace'),
+            (self.get_parameter('apple_min_z').value <= detection.center.z <=
+             self.get_parameter('apple_max_z').value,
+             'apple center height outside configured range'),
+            (self.get_parameter('apple_min_radius').value <= detection.radius <=
+             self.get_parameter('apple_max_radius').value,
+             'apple radius outside configured range'),
+            (detection.point_count >=
+             self.get_parameter('min_fit_points').value,
+             'insufficient fitted depth points'),
+            (detection.fit_residual <=
+             self.get_parameter('max_fit_residual').value,
+             'sphere-fit residual exceeds configured limit'),
+        )
+        return [message for passed, message in checks if not passed]
 
     def _goal_callback(self, goal_request):
         self.get_logger().info(
@@ -127,6 +186,18 @@ class PickAppleActionServer(Node):
             return result
 
         detection = detection_response.detection
+        validation_errors = self._validate_detection(detection)
+        if validation_errors:
+            goal_handle.abort()
+            result.success = False
+            result.final_state = 'SAFETY_REJECTED'
+            result.message = '; '.join(validation_errors)
+            result.total_time = float(time.monotonic() - started_at)
+            self.get_logger().warning(
+                f'Configured safety validation rejected detection: '
+                f'{result.message}')
+            return result
+
         self._publish_feedback(
             goal_handle, 'VALIDATE', 0.45, search_attempt=1)
         self.get_logger().info(

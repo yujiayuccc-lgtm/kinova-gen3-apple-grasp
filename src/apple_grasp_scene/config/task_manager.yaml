@@ -1,0 +1,29 @@
+pick_apple_action_server:
+  ros__parameters:
+    viewpoint_names:
+      - center
+      - right
+      - left
+      - near
+      - near_extended
+      - far
+    viewpoint_x: [0.680, 0.620, 0.640, 0.600, 0.520, 0.700]
+    viewpoint_y: [-0.260, -0.380, -0.160, -0.260, -0.260, -0.260]
+    viewpoint_z: [0.400, 0.400, 0.380, 0.380, 0.400, 0.320]
+
+    workspace_min_x: 0.55
+    workspace_max_x: 0.80
+    workspace_min_y: -0.45
+    workspace_max_y: -0.10
+    apple_min_z: 0.025
+    apple_max_z: 0.060
+    apple_min_radius: 0.025
+    apple_max_radius: 0.055
+    min_fit_points: 1000
+    max_fit_residual: 0.003
+
+    dogleg_threshold: 0.075
+    pregrasp_height: 0.200
+    grasp_height: 0.150
+    lift_height: 0.200
+

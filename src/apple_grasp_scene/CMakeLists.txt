@@ -47,5 +47,5 @@ install(PROGRAMS
   scripts/test_both_pick_paths.sh
   scripts/search_pick_place_apple.sh
   DESTINATION lib/${PROJECT_NAME})
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 ament_package()
