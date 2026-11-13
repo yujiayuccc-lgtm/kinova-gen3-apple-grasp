@@ -1,9 +1,10 @@
 #!/usr/bin/python3
-"""Safe, no-motion ROS 2 action skeleton for the apple-picking task."""
+"""ROS 2 action server for safely integrating the apple-picking task."""
 
+import os
+import subprocess
 import sys
 import time
-import subprocess
 
 sys.path.insert(0, '/usr/lib/python3/dist-packages')
 
@@ -13,10 +14,11 @@ from rclpy.node import Node
 
 from apple_grasp_interfaces.action import PickApple
 from apple_grasp_interfaces.srv import DetectApple
+from std_msgs.msg import Bool
 
 
 class PickAppleActionServer(Node):
-    """Publish task-state feedback without invoking hardware commands."""
+    """Preview the task or execute only the observation-search phase."""
 
     PREVIEW_STATES = (
         'PLAN_APPROACH',
@@ -39,7 +41,7 @@ class PickAppleActionServer(Node):
             cancel_callback=self._cancel_callback,
         )
         self.get_logger().info(
-            'PickApple action server is ready (live perception, no motion). '
+            'PickApple action server is ready (observation motion gated). '
             f'Loaded {len(self._viewpoints)} viewpoints: '
             f'{", ".join(point[0] for point in self._viewpoints)}.')
 
@@ -119,7 +121,31 @@ class PickAppleActionServer(Node):
         feedback.progress = float(progress)
         goal_handle.publish_feedback(feedback)
         self.get_logger().info(
-            f'Dry-run state: {state} ({feedback.progress:.0%})')
+            f'Task state: {state} ({feedback.progress:.0%})')
+
+    def _read_hardware_fault(self):
+        """Return the current fault flag, failing closed if none is received."""
+        fault_node = rclpy.create_node(
+            'pick_apple_fault_reader', enable_rosout=False)
+        state = {'received': False, 'fault': True}
+
+        def callback(message):
+            state['received'] = True
+            state['fault'] = bool(message.data)
+
+        subscription = fault_node.create_subscription(
+            Bool, '/fault_controller/internal_fault', callback, 1)
+        deadline = time.monotonic() + 5.0
+        try:
+            while not state['received'] and time.monotonic() < deadline:
+                rclpy.spin_once(fault_node, timeout_sec=0.2)
+            if not state['received']:
+                raise RuntimeError(
+                    'hardware fault state was not received within 5 seconds')
+            return state['fault']
+        finally:
+            fault_node.destroy_subscription(subscription)
+            fault_node.destroy_node()
 
     def _request_detection(self):
         """Use an isolated client node so the action callback can wait safely."""
@@ -140,8 +166,8 @@ class PickAppleActionServer(Node):
         finally:
             client_node.destroy_node()
 
-    def _preview_viewpoint(self, viewpoint):
-        """Plan to one configured viewpoint without executing a trajectory."""
+    def _run_viewpoint(self, viewpoint, execute_authorized):
+        """Plan to a viewpoint, executing only after all external gates pass."""
         name, x, y, z = viewpoint
         command = [
             'ros2', 'run', 'apple_grasp_scene', 'scene_plan_only',
@@ -149,7 +175,7 @@ class PickAppleActionServer(Node):
             '-p', f'target_x:={x}',
             '-p', f'target_y:={y}',
             '-p', f'target_z:={z}',
-            '-p', 'execute_authorized:=false',
+            '-p', f'execute_authorized:={str(execute_authorized).lower()}',
         ]
         completed = subprocess.run(
             command,
@@ -164,27 +190,42 @@ class PickAppleActionServer(Node):
             detail = lines[-1] if lines else 'no planner output'
             raise RuntimeError(
                 f'viewpoint {name} planning failed: {detail}')
+        operation = 'Motion completed' if execute_authorized else 'Planning preview succeeded'
         self.get_logger().info(
-            f'Planning preview succeeded for {name}: '
-            f'({x:.3f}, {y:.3f}, {z:.3f}) m.')
+            f'{operation} for {name}: ({x:.3f}, {y:.3f}, {z:.3f}) m.')
 
     def _execute_callback(self, goal_handle):
         started_at = time.monotonic()
         result = PickApple.Result()
 
-        # This first implementation is intentionally incapable of motion.
-        # Real execution is connected only after the action lifecycle and
-        # cancellation behavior have been tested independently.
-        if goal_handle.request.execute:
-            result.success = False
-            result.final_state = 'SAFETY_REJECTED'
-            result.message = (
-                'Real execution is disabled in the action skeleton. '
-                'Send execute=false for a no-motion workflow test.')
-            result.total_time = float(time.monotonic() - started_at)
-            goal_handle.abort()
-            self.get_logger().warning(result.message)
-            return result
+        real_execution = bool(goal_handle.request.execute)
+        if real_execution:
+            if os.environ.get('APPLE_ACTION_EXECUTE') != 'YES':
+                result.success = False
+                result.final_state = 'SAFETY_REJECTED'
+                result.message = (
+                    'Real observation motion requires '
+                    'APPLE_ACTION_EXECUTE=YES and execute=true.')
+                result.total_time = float(time.monotonic() - started_at)
+                goal_handle.abort()
+                self.get_logger().warning(result.message)
+                return result
+            try:
+                hardware_fault = self._read_hardware_fault()
+            except RuntimeError as exc:
+                result.success = False
+                result.final_state = 'HARDWARE_STATE_UNAVAILABLE'
+                result.message = str(exc)
+                result.total_time = float(time.monotonic() - started_at)
+                goal_handle.abort()
+                return result
+            if hardware_fault:
+                result.success = False
+                result.final_state = 'HARDWARE_FAULT'
+                result.message = 'Robot reports an active internal fault.'
+                result.total_time = float(time.monotonic() - started_at)
+                goal_handle.abort()
+                return result
 
         self._publish_feedback(goal_handle, 'CHECK_SYSTEM', 0.05)
         time.sleep(0.25)
@@ -215,22 +256,71 @@ class PickAppleActionServer(Node):
 
             name = viewpoint[0]
             progress = 0.10 + 0.40 * (attempt / attempt_limit)
+            operation = 'MOVE' if real_execution else 'PLAN'
             self._publish_feedback(
-                goal_handle, f'PLAN_VIEWPOINT_{name.upper()}', progress,
+                goal_handle, f'{operation}_VIEWPOINT_{name.upper()}', progress,
                 search_attempt=attempt)
+            viewpoint_ready = False
             try:
-                self._preview_viewpoint(viewpoint)
+                self._run_viewpoint(viewpoint, real_execution)
                 planned_count += 1
+                viewpoint_ready = True
             except (RuntimeError, subprocess.TimeoutExpired) as exc:
                 message = str(exc)
                 planning_errors.append(message)
                 self.get_logger().warning(message)
+
+            if real_execution and viewpoint_ready:
+                self._publish_feedback(
+                    goal_handle, 'DETECT', progress + 0.02,
+                    search_attempt=attempt)
+                try:
+                    viewpoint_detection = self._request_detection()
+                except Exception as exc:
+                    planning_errors.append(str(exc))
+                    continue
+                if (not viewpoint_detection.success or
+                        not viewpoint_detection.detection.detected):
+                    reason = (viewpoint_detection.detection.failure_reason or
+                              viewpoint_detection.message)
+                    self.get_logger().warning(
+                        f'Detection failed at {name}: {reason}')
+                    continue
+
+                detection = viewpoint_detection.detection
+                validation_errors = self._validate_detection(detection)
+                if validation_errors:
+                    goal_handle.abort()
+                    result.success = False
+                    result.final_state = 'SAFETY_REJECTED'
+                    result.message = '; '.join(validation_errors)
+                    result.total_time = float(time.monotonic() - started_at)
+                    return result
+
+                goal_handle.succeed()
+                result.success = True
+                result.final_state = 'TARGET_FOUND_GRASP_DISABLED'
+                result.message = (
+                    f'Apple found from viewpoint {name}; grasp motion remains '
+                    f'disabled. Apple=({detection.center.x:.3f}, '
+                    f'{detection.center.y:.3f}, {detection.center.z:.3f}) m.')
+                result.total_time = float(time.monotonic() - started_at)
+                return result
 
         if planned_count == 0:
             goal_handle.abort()
             result.success = False
             result.final_state = 'VIEWPOINT_PLANNING_FAILED'
             result.message = '; '.join(planning_errors)
+            result.total_time = float(time.monotonic() - started_at)
+            return result
+
+        if real_execution:
+            goal_handle.abort()
+            result.success = False
+            result.final_state = 'SEARCH_FAILED'
+            result.message = (
+                f'Apple was not found from {planned_count} executed viewpoints.')
             result.total_time = float(time.monotonic() - started_at)
             return result
 
