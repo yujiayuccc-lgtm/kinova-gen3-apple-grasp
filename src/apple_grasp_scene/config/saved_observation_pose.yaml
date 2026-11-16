@@ -1,4 +1,29 @@
 saved_observation_pose:
+  description: "User-selected Web pose captured on 2026-11-16; default joint restore target"
+  frame_id: base_link
+  joint_names: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]
+  joint_positions_rad:
+    - 0.33103884640109227
+    - 0.5162312403111355
+    - -2.8117207377993463
+    - -1.4518755314784983
+    - -0.49201688086326717
+    - -0.5893799197876921
+    - 2.159723509197275
+  capture:
+    captured_at_utc: "2026-11-16T08:16:56.480989+00:00"
+    source: "Kortex BaseCyclic.RefreshFeedback (read-only)"
+    joint_positions_web_deg: [18.96712875366211, 29.577871322631836, 198.9002685546875, 276.81365966796875, 331.80950927734375, 326.23101806640625, 123.7430419921875]
+    stationary_samples: 3
+    all_base_and_actuator_faults_and_warnings_zero: true
+  notes:
+    - "Angles above 180 degrees are normalized to signed radians for ROS."
+    - "This capture does not validate a return trajectory from an arbitrary starting pose."
+    - "Camera visibility and a new Cartesian end-effector pose were not measured."
+
+# Historical start of the previously validated observation transition.
+# restore_observation_pose.sh uses saved_observation_pose above, not this record.
+historical_transition_start:
   description: "Wrist-camera pose with the apple visible, commissioned 2026-11-16"
   frame_id: base_link
   joint_names: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]
