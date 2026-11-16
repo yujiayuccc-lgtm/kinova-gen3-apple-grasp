@@ -138,14 +138,62 @@ int main(int argc, char* argv[])
     hover.position.x = target_x;
     hover.position.y = target_y;
     hover.position.z = target_z;
+    hover.orientation.x = node->get_parameter_or<double>(
+      "target_qx", current_pose.orientation.x);
+    hover.orientation.y = node->get_parameter_or<double>(
+      "target_qy", current_pose.orientation.y);
+    hover.orientation.z = node->get_parameter_or<double>(
+      "target_qz", current_pose.orientation.z);
+    hover.orientation.w = node->get_parameter_or<double>(
+      "target_qw", current_pose.orientation.w);
+    const double quaternion_norm = std::sqrt(
+      hover.orientation.x * hover.orientation.x +
+      hover.orientation.y * hover.orientation.y +
+      hover.orientation.z * hover.orientation.z +
+      hover.orientation.w * hover.orientation.w);
+    if (quaternion_norm < 0.99 || quaternion_norm > 1.01) {
+      throw std::runtime_error("target orientation quaternion is not normalized");
+    }
     {
       moveit::planning_interface::MoveGroupInterface::Plan plan;
-      const double cartesian_fraction = move_group.computeCartesianPath(
-        std::vector<geometry_msgs::msg::Pose>{hover}, 0.0025, 0.0,
-        plan.trajectory_, true);
+      const bool use_pose_planning = node->get_parameter_or<bool>(
+        "use_pose_planning", false);
+      const std::string named_target = node->get_parameter_or<std::string>(
+        "named_target", "");
+      const std::vector<double> joint_target =
+        node->get_parameter_or<std::vector<double>>(
+          "joint_target", std::vector<double>{});
+      double cartesian_fraction = 0.0;
+      bool planning_succeeded = false;
+      if (!joint_target.empty()) {
+        if (joint_target.size() != 7) {
+          throw std::runtime_error("joint_target must contain exactly 7 values");
+        }
+        if (!move_group.setJointValueTarget(joint_target)) {
+          throw std::runtime_error("joint_target violates robot joint bounds");
+        }
+        planning_succeeded =
+          move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS;
+      } else if (!named_target.empty()) {
+        if (!move_group.setNamedTarget(named_target)) {
+          throw std::runtime_error("named target was not found: " + named_target);
+        }
+        planning_succeeded =
+          move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS;
+      } else if (use_pose_planning) {
+        move_group.setPoseTarget(hover, "end_effector_link");
+        planning_succeeded =
+          move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS;
+        move_group.clearPoseTargets();
+      } else {
+        cartesian_fraction = move_group.computeCartesianPath(
+          std::vector<geometry_msgs::msg::Pose>{hover}, 0.0025, 0.0,
+          plan.trajectory_, true);
+        planning_succeeded = cartesian_fraction >= 0.999;
+      }
       const auto live_state = move_group.getCurrentState();
       moveit::core::robotStateToRobotStateMsg(*live_state, plan.start_state_);
-      if (cartesian_fraction >= 0.999) {
+      if (planning_succeeded) {
         const auto& joint_trajectory = plan.trajectory_.joint_trajectory;
         bool excessive_joint_motion = joint_trajectory.points.empty();
         double total_joint_motion = 0.0;
@@ -189,11 +237,28 @@ int main(int argc, char* argv[])
         display.trajectory_start = plan.start_state_;
         display.trajectory.push_back(plan.trajectory_);
         display_publisher->publish(display);
-        RCLCPP_INFO(
-          node->get_logger(),
-          "CARTESIAN_PLAN_SUCCESS: target=(%.3f, %.3f, %.3f) m, %zu points, %.1f%% path.",
-          target_x, target_y, target_z,
-          plan.trajectory_.joint_trajectory.points.size(), cartesian_fraction * 100.0);
+        if (!joint_target.empty()) {
+          RCLCPP_INFO(
+            node->get_logger(), "JOINT_TARGET_PLAN_SUCCESS: %zu points.",
+            plan.trajectory_.joint_trajectory.points.size());
+        } else if (!named_target.empty()) {
+          RCLCPP_INFO(
+            node->get_logger(),
+            "NAMED_TARGET_PLAN_SUCCESS: target=%s, %zu points.",
+            named_target.c_str(), plan.trajectory_.joint_trajectory.points.size());
+        } else if (use_pose_planning) {
+          RCLCPP_INFO(
+            node->get_logger(),
+            "POSE_PLAN_SUCCESS: target=(%.3f, %.3f, %.3f) m, %zu points.",
+            target_x, target_y, target_z,
+            plan.trajectory_.joint_trajectory.points.size());
+        } else {
+          RCLCPP_INFO(
+            node->get_logger(),
+            "CARTESIAN_PLAN_SUCCESS: target=(%.3f, %.3f, %.3f) m, %zu points, %.1f%% path.",
+            target_x, target_y, target_z,
+            plan.trajectory_.joint_trajectory.points.size(), cartesian_fraction * 100.0);
+        }
         RCLCPP_INFO(node->get_logger(), "Published trajectory animation to RViz.");
         std::this_thread::sleep_for(std::chrono::seconds(2));
 
@@ -212,7 +277,7 @@ int main(int argc, char* argv[])
           goal.trajectory = plan.trajectory_.joint_trajectory;
           RCLCPP_WARN(
             node->get_logger(),
-            "AUTHORIZED REAL MOTION: sending 100%% Cartesian vertical path at 5%% limits.");
+            "AUTHORIZED REAL MOTION: sending safety-checked path at 5%% limits.");
           auto goal_future = controller_client->async_send_goal(goal);
           if (goal_future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
             throw std::runtime_error("controller did not acknowledge trajectory goal");
@@ -238,9 +303,19 @@ int main(int argc, char* argv[])
           }
         }
       } else {
-        RCLCPP_ERROR(
-          node->get_logger(), "Vertical Cartesian path incomplete (%.1f%%); nothing was executed.",
-          cartesian_fraction * 100.0);
+        if (!joint_target.empty()) {
+          RCLCPP_ERROR(
+            node->get_logger(), "Joint-target planning failed; nothing was executed.");
+        } else if (!named_target.empty()) {
+          RCLCPP_ERROR(
+            node->get_logger(), "Named-target planning failed; nothing was executed.");
+        } else if (use_pose_planning) {
+          RCLCPP_ERROR(node->get_logger(), "Pose planning failed; nothing was executed.");
+        } else {
+          RCLCPP_ERROR(
+            node->get_logger(), "Vertical Cartesian path incomplete (%.1f%%); nothing was executed.",
+            cartesian_fraction * 100.0);
+        }
       }
     }
   } catch (const std::exception& error) {

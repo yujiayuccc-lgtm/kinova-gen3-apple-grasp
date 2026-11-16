@@ -46,6 +46,7 @@ install(PROGRAMS
   scripts/vision_pick_apple.sh
   scripts/test_both_pick_paths.sh
   scripts/search_pick_place_apple.sh
+  scripts/restore_observation_pose.sh
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 ament_package()

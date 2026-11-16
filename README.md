@@ -173,6 +173,23 @@ ros2 run apple_grasp_scene stable_apple_locator.sh
 /tmp/apple_locator_annotated.jpg
 ```
 
+### 恢复已保存的相机观察姿态
+
+当前实机观察姿态保存在 `config/saved_observation_pose.yaml`。默认命令只规划，不移动机械臂：
+
+```bash
+ros2 run apple_grasp_scene restore_observation_pose.sh
+```
+
+确认规划、工作区和急停后，使用双重授权以 5% 限速执行：
+
+```bash
+export APPLE_RESTORE_OBSERVATION_EXECUTE=YES
+ros2 run apple_grasp_scene restore_observation_pose.sh --execute
+```
+
+恢复过程仍会执行 MoveIt 碰撞检查、单关节最大 60°检查和硬件故障检查。
+
 ### 3. 抓取路径预览
 
 不传入 `--execute` 时只规划路径，不执行运动或夹爪命令：
