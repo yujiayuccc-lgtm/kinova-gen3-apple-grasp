@@ -1,25 +1,31 @@
 saved_observation_pose:
-  description: "User-selected Web pose captured on 2026-11-16; default joint restore target"
+  description: "User-selected raised observation pose at approximately 0.549 m; default joint restore target"
   frame_id: base_link
   joint_names: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]
   joint_positions_rad:
-    - 0.33103884640109227
-    - 0.5162312403111355
-    - -2.8117207377993463
-    - -1.4518755314784983
-    - -0.49201688086326717
-    - -0.5893799197876921
-    - 2.159723509197275
+    - 0.2554773429769239
+    - 0.7635342766381703
+    - -2.6675712848444095
+    - -0.43703964858410743
+    - -0.4292456413378815
+    - -1.6779379606098743
+    - 0.9397735557270442
+  end_effector_pose:
+    position_m: [0.5931636081750105, -0.21517851338567437, 0.5490475841364063]
+    quaternion_xyzw: [0.9583788545347923, 0.24097446031976072, 0.13770359578925886, 0.06692533422320965]
+    source: "MoveIt FK from captured joint feedback"
+    link_name: end_effector_link
   capture:
-    captured_at_utc: "2026-11-16T08:16:56.480989+00:00"
+    captured_at_utc: "2026-11-16T09:02:07.204143+00:00"
     source: "Kortex BaseCyclic.RefreshFeedback (read-only)"
-    joint_positions_web_deg: [18.96712875366211, 29.577871322631836, 198.9002685546875, 276.81365966796875, 331.80950927734375, 326.23101806640625, 123.7430419921875]
+    joint_positions_web_deg: [14.637773513793945, 43.747291564941406, 207.159423828125, 334.95947265625, 335.4060363769531, 263.8612365722656, 53.84505844116211]
     stationary_samples: 3
     all_base_and_actuator_faults_and_warnings_zero: true
   notes:
     - "Angles above 180 degrees are normalized to signed radians for ROS."
     - "This capture does not validate a return trajectory from an arbitrary starting pose."
-    - "Camera visibility and a new Cartesian end-effector pose were not measured."
+    - "Apple visible in the color image; the latest localization attempt at this pose rejected insufficient apple depth points."
+    - "Saved as an observation/restore pose, not as a validated grasp pose."
 
 # Historical start of the previously validated observation transition.
 # restore_observation_pose.sh uses saved_observation_pose above, not this record.
