@@ -1,31 +1,59 @@
 saved_observation_pose:
-  description: "User-selected raised observation pose at approximately 0.549 m; default joint restore target"
+  description: User-selected lowered observation pose at approximately 0.474 m; default
+    joint restore target
   frame_id: base_link
-  joint_names: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]
+  joint_names:
+  - joint_1
+  - joint_2
+  - joint_3
+  - joint_4
+  - joint_5
+  - joint_6
+  - joint_7
   joint_positions_rad:
-    - 0.2554773429769239
-    - 0.7635342766381703
-    - -2.6675712848444095
-    - -0.43703964858410743
-    - -0.4292456413378815
-    - -1.6779379606098743
-    - 0.9397735557270442
+  - 0.2555324537667318
+  - 0.8808284131607482
+  - -2.667557969038959
+  - -0.43708119389711264
+  - -0.42926215293664005
+  - -1.677991223831676
+  - 0.9396771492955833
   end_effector_pose:
-    position_m: [0.5931636081750105, -0.21517851338567437, 0.5490475841364063]
-    quaternion_xyzw: [0.9583788545347923, 0.24097446031976072, 0.13770359578925886, 0.06692533422320965]
-    source: "MoveIt FK from captured joint feedback"
+    position_m:
+    - 0.6188811322830631
+    - -0.22193517415590228
+    - 0.47369256114468494
+    quaternion_xyzw:
+    - 0.9655561241555433
+    - 0.24223519168889654
+    - 0.08665503035876512
+    - 0.03891514777937719
+    source: Offline MoveIt FK from captured joint feedback using the Gen3 vision URDF
+      and SRDF
     link_name: end_effector_link
   capture:
-    captured_at_utc: "2026-11-16T09:02:07.204143+00:00"
-    source: "Kortex BaseCyclic.RefreshFeedback (read-only)"
-    joint_positions_web_deg: [14.637773513793945, 43.747291564941406, 207.159423828125, 334.95947265625, 335.4060363769531, 263.8612365722656, 53.84505844116211]
+    captured_at_utc: '2026-11-17T11:04:50.873455+00:00'
+    source: Kortex BaseCyclic.RefreshFeedback (read-only)
+    joint_positions_web_deg:
+    - 14.640931129455566
+    - 50.467750549316406
+    - 207.16018676757812
+    - 334.95709228515625
+    - 335.40509033203125
+    - 263.8581848144531
+    - 53.839534759521484
     stationary_samples: 3
     all_base_and_actuator_faults_and_warnings_zero: true
   notes:
-    - "Angles above 180 degrees are normalized to signed radians for ROS."
-    - "This capture does not validate a return trajectory from an arbitrary starting pose."
-    - "Apple visible in the color image; the latest localization attempt at this pose rejected insufficient apple depth points."
-    - "Saved as an observation/restore pose, not as a validated grasp pose."
+  - Angles above 180 degrees are normalized to signed radians for ROS.
+  - Captured after the user lowered the arm through the Web interface; no movement
+    was commanded during capture.
+  - This is an observation/restore target, not a validated grasp pose or a validated
+    return trajectory from arbitrary starts.
+  - The previous fixed-pose search entry transition is no longer valid for this target
+    and must be revalidated before full automatic search.
+  - A prior same-pose RGB-D sample contained 2363 apple-region depth points between
+    0.12 and 0.45 m; this alone does not validate stable 3-D localization or grasping.
 
 # Historical start of the previously validated observation transition.
 # restore_observation_pose.sh uses saved_observation_pose above, not this record.
